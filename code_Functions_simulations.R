@@ -11,23 +11,37 @@ f = function(regformula,desformula,data,method,niter=20,maxstepprop=0.1,tol=1e-6
   #############################################################################
   if (method == "weighted") { ############################### Weighted method
     coef = lm(y ~ x-1, weights=1/pi1, subset=use)$coef
+    sds = (summary(lm(y ~ x-1, weights=1/pi1, subset=use))$sigma)
+    sds = sd(y - fitted(lm(y ~ x-1, weights=1/pi1, subset=use)))
+    #sds = sd(y - fitted(lm(y ~ x-1, subset=use)))
     x = x[use,]; y = y[use]; pi11 = pi1[use]
     
-    I00 = t(x) %*% diag(as.vector(1/pi11)) %*% x
-    I01 = t(x) %*% diag(as.vector((y-x%*%coef)*(1-pi11)*(1/pi11))) %*% w[R1==1,]
+    I00 = t(x/sds^2) %*% diag(as.vector(1/pi11)) %*% x
+    I01 = t(x/sds^2) %*% diag(as.vector((y-x%*%coef)*(1-pi11)*(1/pi11))) %*% w[R1==1,]
     w.aux = w*as.vector(sqrt(pi1*(1-pi1)))
     I11 = t(w.aux) %*% w.aux
     I10 = matrix(rep(0,ncol(I00)*nrow(I11)),nrow=nrow(I11),ncol=ncol(I00))
-    I = rbind(cbind(I00,I01),
-              cbind(I10,I11))
-    S0 = x*as.vector((y-x%*%coef)/pi11)
+    I22 = sum(as.vector(2/(sds^2*pi11) - 3*(y-x%*%coef)^2/(sds^(4)*pi11)))
+    I20 = -t(as.vector(as.vector(2*(y-x%*%coef)/pi11)/sds^(3))) %*% x
+    I21 = -t(as.vector(-2*(1-pi11)/(sds*pi11) + ((y-x%*%coef)^2*(1-pi11)/pi11)/sds^(3))) %*% w[R1==1,]
+    I = rbind(cbind(I00,I01,t(I20)),
+              cbind(I10,I11,t(I21)),
+              cbind(I20,I21,I22))
+    S0 = x*as.vector((y-x%*%coef)/(sds^2*pi11))
     S1 = w*as.vector(R1-pi1)
-    S = t(cbind(t(colSums(S0)), t(colSums(S1))))
+    S2 = as.vector(-2/(sds*pi11) + (y-x%*%coef)^2/(sds^(3)*pi11))
+    S2 = as.vector(-2/(sds) + (y-x%*%coef)^2/(sds^(3)))
+    S = t(cbind(t(colSums(S0)), t(colSums(S1)), sum(S2)))
     
     C00 = empcov(S0,nreps=counts[use])$SS
+    C22 = empcov(S2,nreps=counts[use])$SS
     C01 = empcov(x=S0,y=S1[use,],nreps=counts[use])$SS
+    C21 = empcov(x=S2,y=S1[use,],nreps=counts[use])$SS
+    C02 = empcov(x=S0,y=S2,nreps=counts[use])$SS
     C11 = empcov(S1,nreps=counts)$SS
-    C  = rbind(cbind(C00,C01),cbind(t(C01),C11))
+    C  = rbind(cbind(C00,C01,C02),
+               cbind(t(C01),C11,t(C21)),
+               cbind(t(C02),C21,C22))
     ser = sqrt(diag(solve(I,t(solve(I,C))))[1:ncol(x)])
     
     list(coef=coef,ser=ser)
@@ -35,6 +49,7 @@ f = function(regformula,desformula,data,method,niter=20,maxstepprop=0.1,tol=1e-6
     #################################################################
   } else if (method == "cml") { ############################# cml
     
+    conv <- FALSE
     coef = lm(y ~ x-1, weights=1/pi1, subset=use)$coef; coef.fixed = coef
     
     sig <- c(sqrt(var(y[use] - x[use,]%*%coef)))
@@ -42,59 +57,61 @@ f = function(regformula,desformula,data,method,niter=20,maxstepprop=0.1,tol=1e-6
     nxi = length(xi)
     results = tempfunction(data,x,xi,nxi,coef,desformula)
     ztemp = results$ztemp; xtemp = results$xtemp
-    Integrais = Integral(alpha1,x,ztemp,xtemp,coef,xi,wi, sig)
-    
-    #    x = x[use,]
+
     pi11 = pi1[use]
-    phi = c(coef, alpha1); phi.fixed = phi; coef.fixed = coef
-    phi.old = step = matrix(ncol = length(phi), nrow = niter)
-    S0.old = matrix(ncol = length(beta), nrow = niter)
-    Cycle = FALSE; Repeated.step = FALSE; OPT = FALSE; Div = 1
-    conv = FALSE
-    
-    
+    phi = c(coef, sig, alpha1)
+    #phi = c(coef, alpha1)
+
     for (jj in 1:niter) {
       if (jj>1) {
         coef = phi[1:ncol(x)]
-        alpha1 = phi[(ncol(x)+1):(ncol(x)+length(alpha1))]; pi1 = plogis(z%*%alpha1)
+        sig  <- phi[ncol(x)+1]
+        data$sig <- sig
+        #data$sig <- c(sqrt(var(y[use] - x[use,]%*%coef)))
+        alpha1 = phi[-(1:(ncol(x)+1))]; pi1 = plogis(z%*%alpha1)
+        #alpha1 = phi[-(1:(ncol(x)))]; pi1 = plogis(z%*%alpha1)
         results = tempfunction(data,x,xi,nxi,coef,desformula)
         ztemp = results$ztemp; xtemp = results$xtemp
-        Integrais = Integral(alpha1,x,ztemp,xtemp,coef,xi,wi, sig)
-      }
-      sig <- c(sqrt(var(y[use] - x[use,]%*%coef)))
-      data$sig <- sig
-      
-      I00 = t(x[use,]) %*% diag(as.vector(Integrais$Int.3/Integrais$Int.1)) %*% x[use,] -
-        t(x[use,]) %*% diag(as.vector(Integrais$Int.2/Integrais$Int.1)*(as.vector(Integrais$Int.2/Integrais$Int.1))) %*% x[use,]
-      I01 = t(Integrais$Int.6) -
-        t(x[use,]) %*% diag(as.vector(Integrais$Int.2/Integrais$Int.1/Integrais$Int.1)) %*% t(Integrais$Int.4)
-      colnames(I01) = colnames(z)
-      y.aux = z*as.vector(sqrt(pi1*(1-pi1)))
-      I11 = t(y.aux) %*% y.aux
-      I10 = matrix(c(rep(0,nrow(I11)*ncol(I00))), ncol=ncol(I00), nrow=nrow(I11))
-      
-      if (Stilde) {
-        Itilde10 = Integrais$Int.6 -
-          Integrais$Int.4 %*% diag(as.vector(Integrais$Int.2 * 1/Integrais$Int.1 * 1/Integrais$Int.1)) %*% x[use,]
-        rownames(Itilde10) = colnames(z)
-        z.aux = z*as.vector(sqrt(pi1*(1-pi1)))
-        Itilde11 =  t(z.aux[use,]) %*% z.aux[use,] +
-          Integrais$Int.5 -
-          Integrais$Int.4 %*% diag(as.vector(1/Integrais$Int.1/Integrais$Int.1)) %*% t(Integrais$Int.4)
-        I11 = I11 - Itilde11; I10 = I10 - Itilde10
       }
       
-      II = rbind(cbind(I00,I01),
-                 cbind(I10,I11))
-      S0 = x[use,]*as.vector(y[use]-x[use,]%*%coef) - x[use,]*as.vector(Integrais$Int.2/Integrais$Int.1)
-      S1 = z*as.vector(R1-pi1)
+      S0 <- S0func(y,x,z,alpha1,ztemp,xtemp,coef,xi,wi,sig,use)
+      S1 <- S2func(y,x,z,alpha1,ztemp,xtemp,coef,xi,wi,sig,use)
+      S2 = z*as.vector(R1-pi1)
+      S = t(cbind(t(colSums(S0)), t(colSums(S1)), t(colSums(S2))))
+      #S = t(cbind(t(colSums(S0)), t(colSums(S2))))
+      
+      I00 <- -hessian_betabeta(y,x,z,alpha1,ztemp,xtemp,coef,xi,wi,sig,use)
+      I01 <- -t(hessian_betasigma(y,x,z,alpha1,ztemp,xtemp,coef,xi,wi,sig,use))
+      I02 <- -t(hessian_betaalpha(y,x,z,alpha1,ztemp,xtemp,coef,xi,wi,sig,use))
+      I10 <- t(I01)
+      I11 <- -hessian_sigmasigma(y,x,z,alpha1,ztemp,xtemp,coef,xi,wi,sig,use)
+      I12 <- -t(hessian_sigmaalpha(y,x,z,alpha1,ztemp,xtemp,coef,xi,wi,sig,use))
+
+      y.aux <- z*as.vector(sqrt(pi1*(1-pi1)))
+      I22 <- t(y.aux) %*% y.aux
+      I20 <- matrix(c(rep(0,nrow(I22)*ncol(I00))), ncol=ncol(I00), nrow=nrow(I22))
+      I21 <- matrix(c(rep(0,nrow(I22)*ncol(I11))), ncol=ncol(I11), nrow=nrow(I22))
       
       if (Stilde) {
-        Integrais$Int.4 = as.matrix(Integrais$Int.4); fraction = matrix(nrow=sum(R1), ncol=nrow(Integrais$Int.4))
-        for (f in 1:sum(R1)) fraction[f,] = t(Integrais$Int.4)[f,]*as.vector((1/Integrais$Int.1))[f]
-        Stilde1 = (z*as.vector(1-pi1))[use] - fraction
-        S = t(cbind(t(colSums(S0)), t(colSums(S1) - colSums(Stilde1))))
-      } else S = t(cbind(t(colSums(S0)), t(colSums(S1))))
+        Itilde20 = t(I02)
+        Itilde21 = t(I12)
+        Itilde22 <- -hessian_alphaalpha(y,x,z,alpha1,ztemp,xtemp,coef,xi,wi,sig,use)
+        I22 = I22 - Itilde22
+        I20 = - Itilde20
+        I21 = - Itilde21
+        
+        S2tilde <- Stilde2func(y,x,z,alpha1,ztemp,xtemp,coef,xi,wi,sig,use)
+        
+        S = t(cbind(t(colSums(S0)), t(colSums(S1)), t(colSums(S2) - colSums(S2tilde))))
+        #S = t(cbind(t(colSums(S0)), t(colSums(S2) - colSums(S2tilde))))
+      }
+      
+      II = rbind(cbind(I00,I01,I02),
+                 cbind(I10,I11,I12),
+                 cbind(I20,I21,I22))
+      
+      #II = rbind(cbind(I00,I02),
+      #           cbind(I20,I22))
       
       Step = 0
       if (niter >1) {
@@ -105,46 +122,15 @@ f = function(regformula,desformula,data,method,niter=20,maxstepprop=0.1,tol=1e-6
       if (bigstep > maxstep) {
         Step = Step * maxstep/bigstep
       }
-      step[jj,] = Step; phi.old[jj,] = phi; S0.old[jj,] = colSums(S0); #print(paste("S0 = ",colSums(S0)))
-      
-      if (jj > 5) { 
-        if (!Cycle) {
-          for (jjj in 1:(jj-4)) { ##Check if we are stuck in a loop
-            if (all(round(step[jj,1:3],5) == round(step[jj-jjj,1:3],5)) & max(abs(Step[1:3]))>1e-4) {
-              #              Repeated.step = TRUE
-              atJ = jj; Cycle = TRUE
-            }
-          }
-        }
-        if (Repeated.step) { ##Inside a loop, going back and forth
-          print(paste("Back and forth..."))
-          S0.test = -S0.old[jj-1,]; Step.test = Step
-          print(paste("Optimizing"))
-          S0.opt = optim(coef,S.0.opt,R1=R1,y=y,x=x,alpha1=alpha1,xi=xi,wi=wi,sig=sig,data=data,desformula=desformula)
-          S0.conv = S0.opt$conv
-          if (S0.conv == 0) conv=TRUE
-          coef = S0.opt$par
-          phi = c(phi,alpha1)
-          break
-        } else { ##If there are NO repeated steps, is not going back and forth
-          phi2 = phi + Step
-          if (niter>1) if (max(abs(phi-phi2)[1:ncol(x)]) < tol*max(abs(phi)[1:ncol(x)])) {
-            conv = TRUE
-            break
-          }
-          phi = phi2
-        } ##Finishing checking if there are or there aren't repeated steps
-      } else { ##If jj <= 5
-        phi2 = phi + Step
-        if (niter>1) if (max(abs(phi-phi2)[1:ncol(x)]) < tol*max(abs(phi)[1:ncol(x)])) {
-          conv = TRUE
-          break
-        }
-        phi = phi2
+        
+      phi2 = phi + Step
+      if (niter>1) if (max(abs(phi-phi2)[1:ncol(x)]) < tol*max(abs(phi)[1:ncol(x)])) {
+        conv = TRUE
+        break
       }
-      #print(paste("jj=",jj," coef=",round(phi,4)," coef.fixed=",round(phi.fixed,4)," Step=",round(Step,7)))
+      phi = phi2
     } ##End loop
-    
+
     coef = phi[1:ncol(x)]
     if (niter>1 & !conv) {
       error = error + 1
@@ -152,19 +138,7 @@ f = function(regformula,desformula,data,method,niter=20,maxstepprop=0.1,tol=1e-6
       print(paste("Erros = ",error))
     }
     
-    C00 = empcov(S0,nreps=counts[use])$SS
-    
-    if (Stilde) {
-      C01 = empcov(x=S0,y=S1[use,],nreps=counts[use])$SS - empcov(x=S0,Stilde1,nreps=counts[use])$SS
-      C11 = empcov(S1,nreps=counts)$SS - 2*empcov(x=S1[use,],Stilde1,nreps=counts[use])$SS + empcov(Stilde1,nreps=counts[use])$SS
-    } else {
-      C01 = empcov(x=S0,y=S1[use,],nreps=counts[use])$SS
-      C11 = empcov(S1,nreps=counts)$SS
-    }
-    C   = rbind(cbind(C00,C01),cbind(t(C01),C11))
-    ser = sqrt(diag(solve(II,t(solve(II,C))))[1:ncol(x)])
-    
-    list(coef=coef,ser=ser,conv=conv)
+    list(coef=coef,conv=conv)
     
   } else print(paste("Method not available"))
   
@@ -270,6 +244,11 @@ Integral = function(alpha1,x,ztemp,xtemp,coef,xi,wi,sig) {
   fxi.5 = fxi.5 %*% ztemp
   fxi.6 = fxi.6 %*% xtemp
   
+  fxi.sigma = wi*prob*
+    b*(1/sig)^(b+1)*(xi^2)^(b/2)*exp((1/sigma)^b*(-(xi^2)^(b/2)) + xi^2)
+  fxi.sigma = matrix(c(fxi.sigma),nrow=nxi,byrow=FALSE)
+  Int.S = matrix(colSums(fxi.sigma))
+  
   list(Int.1=Int.1, Int.2=Int.2, Int.3=Int.3,
        Int.4=fxi.4, Int.5=fxi.5, Int.6=fxi.6)
 }
@@ -339,4 +318,200 @@ model.apply = function(formula,data,counts=NULL,always1=NULL){
   always1 <- model.extract(mf, always1)
   y <- model.extract(mf,response)
   list(y=y,X=X,counts=counts,always1=always1,Terms=Terms)
+}
+
+logfc <- function(y,x,z,alpha1,ztemp,xtemp,coef,xi,wi, sig,use=use) {
+  
+  nxi = length(xi)
+  witemp = rep(wi,nrow(x))
+  xitemp = rep(xi,nrow(x))
+  
+  fxi.1 = pi.func(ztemp, alpha1)*wi/sqrt(pi)
+  fxi.1 = matrix(c(fxi.1), nrow=nxi, byrow=FALSE)
+  Int.0 = matrix(colSums(fxi.1))
+  
+  fy <- exp(-(y - x%*%coef)^2/(2*sig^2))*(1/sqrt(2*pi*sig^2))
+  pi1 <-  plogis(z%*%alpha1)
+  
+  log(pi1[use]) -(y - x%*%coef)^2/(2*sig^2) - 2*log(sig) - log(Int.0)
+}
+
+S0func <- function(y,x,z,alpha1,ztemp,xtemp,coef,xi,wi, sig,use=use) {
+  
+  nxi = length(xi)
+  witemp = rep(wi,nrow(x))
+  xitemp = rep(xi,nrow(x))
+  
+  fxi.1 = pi.func(ztemp, alpha1)*sqrt(2)*sig*wi
+  fxi.1 = matrix(c(fxi.1), nrow=nxi, byrow=FALSE)
+  Int.0 = matrix(colSums(fxi.1))
+  
+  fxi.1 = pi.func(ztemp, alpha1)*2*xi*wi
+  fxi.1 = matrix(c(fxi.1), nrow=nxi, byrow=FALSE)
+  Int.1 = matrix(colSums(fxi.1))
+  
+  x[use,]*as.vector((y[use] - x[use,]%*%coef)/(sig^2)) - x[use,]*as.vector(Int.1/Int.0)
+}
+
+S2func <- function(y,x,z,alpha1,ztemp,xtemp,coef,xi,wi, sig,use=use) {
+  
+  nxi = length(xi)
+  witemp = rep(wi,nrow(x))
+  xitemp = rep(xi,nrow(x))
+  
+  fxi.1 = pi.func(ztemp, alpha1)*sqrt(2)*sig*wi
+  fxi.1 = matrix(c(fxi.1), nrow=nxi, byrow=FALSE)
+  Int.0 = matrix(colSums(fxi.1))
+  
+  fxi.1 = pi.func(ztemp, alpha1)*xi*xi*wi
+  fxi.1 = matrix(c(fxi.1), nrow=nxi, byrow=FALSE)
+  Int.3 = matrix(colSums(fxi.1))
+  
+  (y[use] - x[use,]%*%coef)^2/(sig^3) - as.vector(2*sqrt(2)*Int.3/Int.0)
+}
+
+Stilde2func <- function(y,x,z,alpha1,ztemp,xtemp,coef,xi,wi, sig,use=use) {
+  
+  pi1 <-  plogis(z%*%alpha1)
+  
+  nxi = length(xi)
+  witemp = rep(wi,nrow(x))
+  xitemp = rep(xi,nrow(x))
+  
+  fxi.1 = pi.func(ztemp, alpha1)*sqrt(2)*sig*wi
+  fxi.1 = matrix(c(fxi.1), nrow=nxi, byrow=FALSE)
+  Int.0 = matrix(colSums(fxi.1))
+  
+  fxi.4 = t(ztemp)  
+  for (i in 1:ncol(ztemp)) {
+    fxi.4[i,] = t(ztemp)[i,] * (wi*(pi.func(ztemp, alpha1)*(1-pi.func(ztemp, alpha1)))*sqrt(2*sig^2))
+  }
+  a = t(fxi.4)
+  dim(a) = c(nxi,nrow(a)/nxi*ncol(a))
+  b = as.vector(colSums(a))
+  c = matrix(c(b),nrow=ncol(ztemp),byrow=TRUE)
+  fxi.4 = c
+  
+  Int.4 = as.matrix(fxi.4); ratioInt = matrix(nrow=sum(R1), ncol=nrow(fxi.4))
+  for (f in 1:sum(R1))
+    ratioInt[f,] = t(Int.4)[f,]*as.vector((1/Int.0))[f]
+  
+  (z*as.vector(1-pi1))[use,] - ratioInt
+}
+
+
+hessian_betabeta <- function(y,x,z,alpha1,ztemp,xtemp,coef,xi,wi, sig,use, delta_step = 1e-4) {
+  b <- matrix(NA, ncol = length(coef), nrow = length(coef))
+  for (i in 1:length(coef)){
+    coef_new1 <- coef_new2 <- coef
+    coef_new1[i] <- coef_new1[i] + delta_step
+    coef_new2[i] <- coef_new2[i]
+    a1 <- S0func(y,x,z,alpha1,ztemp,xtemp,coef_new1,xi,wi, sig,use)
+    a0 <- S0func(y,x,z,alpha1,ztemp,xtemp,coef_new2,xi,wi, sig,use)
+    b[i,] <- colSums((a1 - a0)/(delta_step))
+  }
+  b
+}
+hessian_sigmasigma <- function(y,x,z,alpha1,ztemp,xtemp,coef,xi,wi, sig,use, delta_step = 1e-4) {
+  b <- matrix(NA, ncol = length(sig), nrow = length(sig))
+  for (i in 1:length(sig)){
+    sig_new1 <- sig_new2 <- sig
+    sig_new1[i] <- sig_new1[i] + delta_step
+    sig_new2[i] <- sig_new2[i]
+    a1 <- S2func(y,x,z,alpha1,ztemp,xtemp,coef,xi,wi, sig_new1,use)
+    a0 <- S2func(y,x,z,alpha1,ztemp,xtemp,coef,xi,wi, sig_new2,use)
+    b[i,] <- colSums((a1 - a0)/(delta_step))
+  }
+  b
+}
+hessian_alphaalpha <- function(y,x,z,alpha1,ztemp,xtemp,coef,xi,wi, sig,use, delta_step = 1e-4) {
+  b <- matrix(NA, ncol = length(alpha1), nrow = length(alpha1))
+  for (i in 1:length(alpha1)){
+    alpha1_new1 <- alpha1_new2 <- alpha1
+    alpha1_new1[i] <- alpha1_new1[i] + delta_step
+    alpha1_new2[i] <- alpha1_new2[i]
+    a1 <- Stilde2func(y,x,z,alpha1_new1,ztemp,xtemp,coef,xi,wi, sig,use)
+    a0 <- Stilde2func(y,x,z,alpha1_new2,ztemp,xtemp,coef,xi,wi, sig,use)
+    b[i,] <- colSums((a1 - a0)/(delta_step))
+  }
+  b
+}
+hessian_betasigma <- function(y,x,z,alpha1,ztemp,xtemp,coef,xi,wi, sig,use, delta_step = 1e-4) {
+  b <- matrix(NA, ncol = length(beta), nrow = length(sig))
+  for (i in 1:length(sig)){
+    sig_new1 <- sig_new2 <- sig
+    sig_new1[i] <- sig_new1[i] + delta_step
+    sig_new2[i] <- sig_new2[i]
+    a1 <- S0func(y,x,z,alpha1,ztemp,xtemp,coef,xi,wi, sig_new1,use)
+    a0 <- S0func(y,x,z,alpha1,ztemp,xtemp,coef,xi,wi, sig_new2,use)
+    b[i,] <- colSums((a1 - a0)/(delta_step))
+  }
+  b
+}
+hessian_betaalpha <- function(y,x,z,alpha1,ztemp,xtemp,coef,xi,wi, sig,use, delta_step = 1e-4) {
+  b <- matrix(NA, ncol = length(beta), nrow = length(alpha1))
+  for (i in 1:length(alpha1)){
+    alpha_new1 <- alpha_new2 <- alpha1
+    alpha_new1[i] <- alpha_new1[i] + delta_step
+    alpha_new2[i] <- alpha_new2[i]
+    a1 <- S0func(y,x,z,alpha_new1,ztemp,xtemp,coef,xi,wi, sig,use)
+    a0 <- S0func(y,x,z,alpha_new2,ztemp,xtemp,coef,xi,wi, sig,use)
+    b[i,] <- colSums((a1 - a0)/(delta_step))
+  }
+  b
+}
+hessian_sigmaalpha <- function(y,x,z,alpha1,ztemp,xtemp,coef,xi,wi, sig,use, delta_step = 1e-4) {
+  b <- matrix(NA, ncol = length(sig), nrow = length(alpha1))
+  for (i in 1:length(alpha1)){
+    alpha_new1 <- alpha_new2 <- alpha1
+    alpha_new1[i] <- alpha_new1[i] + delta_step
+    alpha_new2[i] <- alpha_new2[i]
+    a1 <- S2func(y,x,z,alpha_new1,ztemp,xtemp,coef,xi,wi, sig,use)
+    a0 <- S2func(y,x,z,alpha_new2,ztemp,xtemp,coef,xi,wi, sig,use)
+    b[i,] <- colSums((a1 - a0)/(delta_step))
+  }
+  b
+}
+
+
+
+
+
+score_beta <- function(y,x,z,alpha1,ztemp,xtemp,coef,xi,wi,sig,use,h = 1e-10) {
+  b <- matrix(NA, ncol = length(beta), nrow = nrow(x))
+  for (i in 1:length(coef)){
+    beta_new1 <- beta_new2 <- coef
+    beta_new1[i] <- beta_new1[i] + h
+    beta_new2[i] <- beta_new2[i] - h
+    a1 <- logfc(y,x,z,alpha1,ztemp,xtemp,beta_new1,xi,wi, sig,use)
+    a0 <- logfc(y,x,z,alpha1,ztemp,xtemp,beta_new2,xi,wi, sig,use)
+    b[,i] <- (a1 - a0)/(2*h)
+  }
+  b
+}
+
+score_alpha <- function(y,x,z,alpha1,ztemp,xtemp,coef,xi,wi, sig,use,h = 1e-10) {
+  b <- matrix(NA, ncol = length(alpha1), nrow = nrow(x))
+  for (i in 1:length(alpha1)){
+    alpha_new1 <- alpha_new2 <- alpha1
+    alpha_new1[i] <- alpha_new1[i] + h
+    alpha_new2[i] <- alpha_new2[i] - h
+    a1 <- logfc(y,x,z,alpha_new1,ztemp,xtemp,coef,xi,wi, sig,use)
+    a0 <- logfc(y,x,z,alpha_new2,ztemp,xtemp,coef,xi,wi, sig,use)
+    b[,i] <- (a1 - a0)/(2*h)
+  }
+  b
+}
+
+score_sigma <- function(y,x,z,alpha1,ztemp,xtemp,coef,xi,wi, sig,use,h = 1e-10) {
+  b <- matrix(NA, ncol = length(sig), nrow = nrow(x))
+  for (i in 1:length(sig)){
+    sig_new1 <- sig_new2 <- sig
+    sig_new1[i] <- sig_new1[i] + h
+    sig_new2[i] <- sig_new2[i] - h
+    a1 <- logfc(y,x,z,alpha1,ztemp,xtemp,coef,xi,wi, sig_new1,use)
+    a0 <- logfc(y,x,z,alpha1,ztemp,xtemp,coef,xi,wi, sig_new2,use)
+    b[,i] <- (a1 - a0)/(2*h)
+  }
+  b
 }
