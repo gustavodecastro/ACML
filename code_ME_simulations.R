@@ -16,8 +16,8 @@ require(TwoPhaseReg)
 library(sleev)
 df = 500; Alpha=5; W=1
 
-source("main.R")
-source("integrals.R")
+source("main_gen.R")
+source("integrals_gen.R")
 
 beta = c(1,.5,.5)
 N = 4000; Nsim = 21
@@ -91,10 +91,8 @@ for (ii in 1:Nsim) {
   bbeta <<- coef(lm(y ~ x1 + x2_error))
   inf_naive = (y - cbind(1,x1,x2_error) %*% bbeta[1:3])*x1
   data$inf_naive = inf_naive
-  #x2imp <- predict(lm(x2 ~ y*x1*dy, data=data, subset=R1==1), newdata=data)
-  x2imp <- x2_error
-  inf_naive_x1 = (y - cbind(1,x1,x2imp) %*% bbeta[1:3])*x1
-  inf_naive_x2 = (y - cbind(1,x1,x2imp) %*% bbeta[1:3])*x2imp
+  inf_naive_x1 = (y - cbind(1,x1,x2_error) %*% bbeta[1:3])*x1
+  inf_naive_x2 = (y - cbind(1,x1,x2_error) %*% bbeta[1:3])*x2_error
   data$inf_naive_x1 = inf_naive_x1
   data$inf_naive_x2 = inf_naive_x2
   
@@ -111,37 +109,18 @@ for (ii in 1:Nsim) {
   coef3b = f(regformula, desformula2, Stilde = TRUE, data, method="cml", niter=25, maxstepprop=.01)
   coef3c = f(regformula, desformula3, Stilde = TRUE, data, method="cml", niter=25, maxstepprop=.01)
   
-  coef.wgt10[ii,] = coef10$coef; ser.wgt10[ii,] = coef10$ser  
-  coef.wgt1a[ii,] = coef1a$coef; ser.wgt1a[ii,] = coef1a$ser
-  coef.wgt1b[ii,] = coef1b$coef; ser.wgt1b[ii,] = coef1b$ser
-  coef.wgt1c[ii,] = coef1c$coef; ser.wgt1c[ii,] = coef1c$ser
-  coef.cml10[ii,] = coef20$coef; ser.cml10[ii,] = coef20$ser
-  coef.cml1a[ii,] = coef2a$coef; ser.cml1a[ii,] = coef2a$ser
-  coef.cml1b[ii,] = coef2b$coef; ser.cml1b[ii,] = coef2b$ser
-  coef.cml1c[ii,] = coef2c$coef; ser.cml1c[ii,] = coef2c$ser
-  coef.cml20[ii,] = coef30$coef; ser.cml20[ii,] = coef30$ser
-  coef.cml2a[ii,] = coef3a$coef; ser.cml2a[ii,] = coef3a$ser
-  coef.cml2b[ii,] = coef3b$coef; ser.cml2b[ii,] = coef3b$ser
-  coef.cml2c[ii,] = coef3c$coef; ser.cml2c[ii,] = coef3c$ser  
-  #  print(ii)
-  
-  #  if (ii > 1){
-  #    cat('\nWGT-1', round(apply(coef.wgt1a[1:ii,], 2, var)*1000, 3))
-  #    cat('\nWGT-2', round(apply(coef.wgt1b[1:ii,], 2, var)*1000, 3))
-  #    cat('\nWGT-3', round(apply(coef.wgt1c[1:ii,], 2, var)*1000, 3))
-  #    
-  #    cat('\nCML-1', round(apply(coef.cml1a[1:ii,], 2, var)*1000, 3))
-  #    cat('\nCML-2', round(apply(coef.cml1b[1:ii,], 2, var)*1000, 3))
-  #    cat('\nCML-3', round(apply(coef.cml1c[1:ii,], 2, var)*1000, 3))
-  #    
-  #    cat('\nACML-1', round(apply(coef.cml2a[1:ii,], 2, var)*1000, 3))
-  #    cat('\nACML-2', round(apply(coef.cml2b[1:ii,], 2, var)*1000, 3))
-  #    cat('\nACML-3', round(apply(coef.cml2c[1:ii,], 2, var)*1000, 3))
-  #  }
-  #}
-  
-  #coef3 = f(regformula, desformula, data, method="cml", Stilde=TRUE, niter=50, maxstepprop=.1)
-  #coef.cml2[ii,] = coef3$coef; ser.cml2[ii,] = coef3$ser
+  coef.wgt10[ii,] = coef10$coef  
+  coef.wgt1a[ii,] = coef1a$coef
+  coef.wgt1b[ii,] = coef1b$coef
+  coef.wgt1c[ii,] = coef1c$coef
+  coef.cml10[ii,] = coef20$coef
+  coef.cml1a[ii,] = coef2a$coef
+  coef.cml1b[ii,] = coef2b$coef
+  coef.cml1c[ii,] = coef2c$coef
+  coef.cml20[ii,] = coef30$coef
+  coef.cml2a[ii,] = coef3a$coef
+  coef.cml2b[ii,] = coef3b$coef
+  coef.cml2c[ii,] = coef3c$coef
   
   ### Raking
   data_rak <- data
@@ -158,30 +137,8 @@ for (ii in 1:Nsim) {
   
   coef.rak[ii,] = summary(rak2ph)$coef[,1]; ser.rak[ii,] = summary(rak2ph)$coef[,2]
   coef.rakb[ii,] = summary(rak2phb)$coef[,1]; ser.rakb[ii,] = summary(rak2phb)$coef[,2]
+  
   ###
-  
-  #  print(ii)
-  #  
-  #  if (ii > 1){
-  #    
-  #    cat('\nWGT-1', round(apply(coef.wgt1a[1:ii,], 2, var)*1000, 3))
-  #    cat('\nWGT-2', round(apply(coef.wgt1b[1:ii,], 2, var)*1000, 3))
-  #    cat('\nWGT-3', round(apply(coef.wgt1c[1:ii,], 2, var)*1000, 3))
-  #    
-  #    cat('\nCML-1', round(apply(coef.cml1a[1:ii,], 2, var)*1000, 3))
-  #    cat('\nCML-2', round(apply(coef.cml1b[1:ii,], 2, var)*1000, 3))
-  #    cat('\nCML-3', round(apply(coef.cml1c[1:ii,], 2, var)*1000, 3))
-  #    
-  #    cat('\nACML-1', round(apply(coef.cml2a[1:ii,], 2, var)*1000, 3))
-  #    cat('\nACML-2', round(apply(coef.cml2b[1:ii,], 2, var)*1000, 3))
-  #    cat('\nACML-3', round(apply(coef.cml2c[1:ii,], 2, var)*1000, 3))
-  #    
-  #    cat('\nRak-1', round(apply(coef.rak[1:ii,], 2, var)*1000, 3))
-  #    cat('\nRak-2', round(apply(coef.rakb[1:ii,], 2, var)*1000, 3))
-  #  }
-  #}
-  
-  
   N_SIEVE <- N_SIEVE
   Bspline <- bs(data$x3, df=N_SIEVE, degree=degree, Boundary.knots=range(data$x3), intercept=TRUE)
   colnames(Bspline) <- paste("bs", 1:N_SIEVE, sep="")
@@ -192,29 +149,6 @@ for (ii in 1:Nsim) {
   
   coefs_smle[ii,] <- res_linear$coefficients[c(1,3,2),1]
   ses_smle[ii,] <- res_linear$coefficients[c(1,3,2),2]
-  
-  
-  #  if (ii > 1){
-  #    
-  #    cat('\nWGT-1', round(apply(coef.wgt1a[1:ii,], 2, var)*1000, 3))
-  #    cat('\nWGT-2', round(apply(coef.wgt1b[1:ii,], 2, var)*1000, 3))
-  #    cat('\nWGT-3', round(apply(coef.wgt1c[1:ii,], 2, var)*1000, 3))
-  #    
-  #    cat('\nCML-1', round(apply(coef.cml1a[1:ii,], 2, var)*1000, 3))
-  #    cat('\nCML-2', round(apply(coef.cml1b[1:ii,], 2, var)*1000, 3))
-  #    cat('\nCML-3', round(apply(coef.cml1c[1:ii,], 2, var)*1000, 3))
-  #    
-  #    cat('\nACML-1', round(apply(coef.cml2a[1:ii,], 2, var)*1000, 3))
-  #    cat('\nACML-2', round(apply(coef.cml2b[1:ii,], 2, var)*1000, 3))
-  #    cat('\nACML-3', round(apply(coef.cml2c[1:ii,], 2, var)*1000, 3))
-  #    
-  #    cat('\nRak-1', round(apply(coef.rak[1:ii,], 2, var)*1000, 3))
-  #    cat('\nRak-2', round(apply(coef.rakb[1:ii,], 2, var)*1000, 3))
-  #    
-  #    cat('\nSPMLE', round(apply(coefs_smle[1:ii,], 2, var)*1000, 3))
-  #  }
-  #}
-  
   
   ddest <- matrix(c(coef.wgt10[ii,], 
                     coef.wgt1a[ii,], 
@@ -231,32 +165,14 @@ for (ii in 1:Nsim) {
                     coef.rak[ii,], 
                     coef.rakb[ii,],
                     coefs_smle[ii,]), nrow=1)
-  ddvar <- matrix(c(ser.wgt10[ii,], 
-                    ser.wgt1a[ii,], 
-                    ser.wgt1b[ii,], 
-                    ser.wgt1c[ii,],
-                    ser.cml10[ii,], 
-                    ser.cml1a[ii,], 
-                    ser.cml1b[ii,], 
-                    ser.cml1c[ii,],
-                    ser.cml20[ii,], 
-                    ser.cml2a[ii,], 
-                    ser.cml2b[ii,], 
-                    ser.cml2c[ii,],
-                    ser.rak[ii,], 
-                    ser.rakb[ii,],
-                    ses_smle[ii,]), nrow=1)
   
   if (ii == 1) {
     save2 <- paste('N = ', N, 'n1 = ', n, 'beta = ', paste(beta, collapse=" "), ' njob = ', njob)
     if (!file.exists(file_est)) {
       file.create(file_est)
       write.table(save2, file = file_est,  sep = "\t", row.names = TRUE, col.names = TRUE, append=TRUE)
-      file.create(file_var)
-      write.table(save2, file = file_var,  sep = "\t", row.names = TRUE, col.names = TRUE, append=TRUE)
     }
   }
   
   write.table(ddest, file = file_est, sep = "\t", row.names = TRUE, col.names = FALSE, append=TRUE)
-  write.table(ddvar, file = file_var, sep = "\t", row.names = TRUE, col.names = FALSE, append=TRUE)  
 }
